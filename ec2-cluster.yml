@@ -88,8 +88,3 @@
                     dest="{{ INVENTORY_FILENAME }}"
                     line="# \"{{ item }}\" "
       with_items: "{{ mapr_cluster.instance_ids }}"
-
-    # - name: Print ec2 var 
-    #   debug: 
-    #     msg: "Val: {{ item.private_ip }} "
-    #   with_items: "{{ ec2.instances }}"
