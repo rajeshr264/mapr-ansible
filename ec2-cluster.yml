@@ -80,11 +80,13 @@
                     dest="{{ INVENTORY_FILENAME }}" 
                     line={{ item.private_ip }}
       with_items: "{{ mapr_cluster.instances }}"
-    - name: adding instance ids comment string 
-      shell: echo "\n# Instance ids" >> "{{ INVENTORY_FILENAME }}"
-    - name: Inventory File " {{ INVENTORY_FILENAME }} " contains the Private IPs and Instance Ids
-      local_action: lineinfile
-                    state=present
-                    dest="{{ INVENTORY_FILENAME }}"
-                    line="# \"{{ item }}\" "
-      with_items: "{{ mapr_cluster.instance_ids }}"
+
+
+    # - name: adding instance ids comment string 
+    #   shell: echo "\n# Instance ids" >> "{{ INVENTORY_FILENAME }}"
+    # - name: Inventory File " {{ INVENTORY_FILENAME }} " contains the Private IPs and Instance Ids
+    #   local_action: lineinfile
+    #                 state=present
+    #                 dest="{{ INVENTORY_FILENAME }}"
+    #                 line="# \"{{ item }}\" "
+    #   with_items: "{{ mapr_cluster.instance_ids }}"
