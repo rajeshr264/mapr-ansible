@@ -1,8 +1,35 @@
+# Launches EC2 nodes 
+
+# Set up Info:
+# - This script has been tested on Mac OSX High Sierra.
+# - You need to :
+#   - install Ansible. Ref : http://docs.ansible.com/ansible/latest/intro_installation.html
+#   - you need to set the AWS Access key info as BASH env vars. Ref: http://docs.ansible.com/ansible/latest/guide_aws.html
+#  
+# How to run this Playbook:
+# $   ansible-playbook ec2-cluster.yml --extra-vars \
+#    " EC2_REGION=us-west-2  \
+#      EC2_TYPE=m4.xlarge  \
+#      EC2_AMI=ami-abcd    \
+#      EC2_KEY=mykey  \
+#      EC2_SUBNET=subnet-xxx  \
+#      EC2_SEC_GRP_ID=sg-xxxx \
+#      EBS_VOL_SIZE=100  \
+#      IAM=awsusername \
+#      EC2_INST_NAME_TAG=my-project \
+#      EC2_COUNT=2 \ 
+#      INVENTORY_FILENAME=myproj_ec2_node_list_`date "+%s"`.txt "
+
+# OUTPUT: The private IP addresses of all the nodes, will be stored in INVENTORY_FILENAME 
+# TIP: Create a script in your home dir with your values to do this repeatedly. 
+# TIP: The last 3 vars above project name tag, count of ec2 nodes & the inventory file 
+#      containing the nodes, is what you will keep changing constantly.
+
 ---  
 - hosts: localhost  
   connection: local  
   gather_facts: no    
-  vars:   # OVERRIDE these vars on the command line
+  vars:                     # OVERRIDE these vars on the command line
     EC2_REGION: "{{ EC2_REGION|default('us-west-2') }}"
     EC2_TYPE: "{{ EC2_TYPE|default('null') }}"
     EC2_AMI: "{{ EC2_AMI|default('null') }} "  
@@ -10,22 +37,14 @@
     EC2_SUBNET: "{{ EC2_SUBNET|default('null') }}"
     EC2_SEC_GRP_ID: "{{ EC2_SEC_GRP_ID|default('null') }}"
     EC2_INST_NAME_TAG: "{{ EC2_INST_NAME_TAG|default('CHANGE-THIS-DEFAULT-PROJ-NAME') }} "
-    EC2_COUNT: "{{ EC2_COUNT|default('1') }}"    # Number of nodes you want
+    EC2_COUNT: "{{ EC2_COUNT|default('1') }}"     
     EBS_VOL_SIZE: "{{ EBS_VOL_SIZE|default('50') }}"
     IAM: "{{ IAM|default('null') }}" 
-    INVENTORY_FILENAME: "{{ INVENTORY_FILENAME|default('ec2_nodes_list.txt') }}" # NOTE: specify node list filename on cmd line
-
-# Sample cmd line. Create a script in your home dir with your values: 
-# $   ansible-playbook ec2-cluster.yml --extra-vars \
-#    " EC2_REGION=us-west-2 EC2_TYPE=m4.xlarge  EC2_AMI=ami-abcd \
-#      EC2_KEY=mykey  EC2_SUBNET=subnet-xxx  EC2_SEC_GRP_ID=sg-xxxx \
-#      EC2_INST_NAME_TAG=my-project EC2_COUNT=2 \ 
-#      EBS_VOL_SIZE=100 IAM=awsusername \
-#      INVENTORY_FILENAME=ec2_node_list_`date "+%s"`  "
+    INVENTORY_FILENAME: "{{ INVENTORY_FILENAME|default('ec2_nodes_list.txt') }}"  
 
   tasks:  
-    - name: launching "{{ EC2_COUNT }}" number of ec2 nodes  
-      ec2:
+    - name: Launching "{{ EC2_COUNT }}" number of ec2 nodes  
+      ec2:                              # Using the ec2 Module in Ansible. Ref: http://docs.ansible.com/ansible/latest/ec2_module.html
         region: "{{ EC2_REGION }}"  
         key_name: "{{ EC2_KEY }}"  
         instance_type: "{{ EC2_TYPE }}"    
@@ -37,17 +56,17 @@
         assign_public_ip: false
         volumes:
           - device_name: /dev/xvdba # swap
-            volume_type: gp2
-            volume_size: 4
+            volume_type: gp2 # HDD default 
+            volume_size: 4   # 4 GB default
             delete_on_termination: true
           - device_name: /dev/xvdbb # data volume
-            volume_type: gp2
+            volume_type: gp2  # HDD default 
             volume_size: "{{ EBS_VOL_SIZE }}"
             delete_on_termination: true
         instance_tags:  
           Name: "{{ EC2_INST_NAME_TAG }}"  
-          user: "{{ IAM }}"  # required tag for MAPRSE-AWS account
-          User: "{{ IAM }}"  # required tag for MAPRSE-AWS account
+          user: "{{ IAM }}"  # additional tag  
+          User: "{{ IAM }}"  # required tag 
         user_data: |
           #!/bin/bash -x
           # adding swap to each machine. swap space is not created by default
@@ -73,7 +92,7 @@
       lineinfile: 
         path: "{{ INVENTORY_FILENAME }}"
         state: present
-        line: '[instances]'
+        line: '[private_ip]'
     - name: Added the Node Private IP addresses to "{{ INVENTORY_FILENAME }}" file
       local_action: lineinfile 
                     state=present
