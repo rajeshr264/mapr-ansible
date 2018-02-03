@@ -1,0 +1,95 @@
+---  
+- hosts: localhost  
+  connection: local  
+  gather_facts: no    
+  vars:   # OVERRIDE these vars on the command line
+    EC2_REGION: "{{ EC2_REGION|default('us-west-2') }}"
+    EC2_TYPE: "{{ EC2_TYPE|default('null') }}"
+    EC2_AMI: "{{ EC2_AMI|default('null') }} "  
+    EC2_KEY: "{{ EC2_KEY|default('null') }}"  
+    EC2_SUBNET: "{{ EC2_SUBNET|default('null') }}"
+    EC2_SEC_GRP_ID: "{{ EC2_SEC_GRP_ID|default('null') }}"
+    EC2_INST_NAME_TAG: "{{ EC2_INST_NAME_TAG|default('CHANGE-THIS-DEFAULT-PROJ-NAME') }} "
+    EC2_COUNT: "{{ EC2_COUNT|default('1') }}"    # Number of nodes you want
+    EBS_VOL_SIZE: "{{ EBS_VOL_SIZE|default('50') }}"
+    IAM: "{{ IAM|default('null') }}" 
+    INVENTORY_FILENAME: "{{ INVENTORY_FILENAME|default('ec2_nodes_list.txt') }}" # NOTE: specify node list filename on cmd line
+
+# Sample cmd line. Create a script in your home dir with your values: 
+# $   ansible-playbook ec2-cluster.yml --extra-vars \
+#    " EC2_REGION=us-west-2 EC2_TYPE=m4.xlarge  EC2_AMI=ami-abcd \
+#      EC2_KEY=mykey  EC2_SUBNET=subnet-xxx  EC2_SEC_GRP_ID=sg-xxxx \
+#      EC2_INST_NAME_TAG=my-project EC2_COUNT=2 \ 
+#      EBS_VOL_SIZE=100 IAM=awsusername \
+#      INVENTORY_FILENAME=ec2_node_list_`date "+%s"`  "
+
+  tasks:  
+    - name: launching "{{ EC2_COUNT }}" number of ec2 nodes  
+      ec2:
+        region: "{{ EC2_REGION }}"  
+        key_name: "{{ EC2_KEY }}"  
+        instance_type: "{{ EC2_TYPE }}"    
+        image: "{{ EC2_AMI }}"  
+        vpc_subnet_id: "{{ EC2_SUBNET }}"
+        group_id: "{{ EC2_SEC_GRP_ID }}"
+        count: "{{ EC2_COUNT }}"  
+        wait: yes   
+        assign_public_ip: false
+        volumes:
+          - device_name: /dev/xvdba # swap
+            volume_type: gp2
+            volume_size: 4
+            delete_on_termination: true
+          - device_name: /dev/xvdbb # data volume
+            volume_type: gp2
+            volume_size: "{{ EBS_VOL_SIZE }}"
+            delete_on_termination: true
+        instance_tags:  
+          Name: "{{ EC2_INST_NAME_TAG }}"  
+          user: "{{ IAM }}"  # required tag for MAPRSE-AWS account
+          User: "{{ IAM }}"  # required tag for MAPRSE-AWS account
+        user_data: |
+          #!/bin/bash -x
+          # adding swap to each machine. swap space is not created by default
+          mkswap /dev/xvdba
+          swapon /dev/xvdba
+          echo "/dev/xvdba       none    swap    sw  0       0" >> /etc/fstab
+      register: mapr_cluster
+    - name: Waiting for the instance to come up. Check VPN is on!
+      local_action: wait_for
+                    host={{ item.private_ip }}
+                    state=started
+                    port=22
+      with_items: "{{ mapr_cluster.instances }} "
+    - name: Delete prev ver of "{{ INVENTORY_FILENAME }}" file if it exists 
+      file: 
+        path: "{{ INVENTORY_FILENAME }}"
+        state: absent
+    - name: create empty "{{ INVENTORY_FILENAME }}"  file  
+      file: 
+        path: "{{ INVENTORY_FILENAME }}"
+        state: touch
+    - name: add first line in "{{ INVENTORY_FILENAME }}"  file  
+      lineinfile: 
+        path: "{{ INVENTORY_FILENAME }}"
+        state: present
+        line: '[instances]'
+    - name: Added the Node Private IP addresses to "{{ INVENTORY_FILENAME }}" file
+      local_action: lineinfile 
+                    state=present
+                    dest="{{ INVENTORY_FILENAME }}" 
+                    line={{ item.private_ip }}
+      with_items: "{{ mapr_cluster.instances }}"
+    - name: adding instance ids comment string 
+      shell: echo "\n# Instance ids" >> "{{ INVENTORY_FILENAME }}"
+    - name: Inventory File " {{ INVENTORY_FILENAME }} " contains the Private IPs and Instance Ids
+      local_action: lineinfile
+                    state=present
+                    dest="{{ INVENTORY_FILENAME }}"
+                    line="# \"{{ item }}\" "
+      with_items: "{{ mapr_cluster.instance_ids }}"
+
+    # - name: Print ec2 var 
+    #   debug: 
+    #     msg: "Val: {{ item.private_ip }} "
+    #   with_items: "{{ ec2.instances }}"
