@@ -4,10 +4,10 @@
 # - This script has been tested on Mac OSX High Sierra.
 # - You need to :
 #   - install Ansible. Ref : http://docs.ansible.com/ansible/latest/intro_installation.html
-#   - you need to set the AWS Access key info as BASH env vars. Ref: http://docs.ansible.com/ansible/latest/guide_aws.html
+#   - you need to set the AWS Access keys info as BASH env vars. Ref: http://docs.ansible.com/ansible/latest/guide_aws.html
 #  
 # How to run this Playbook:
-# $   ansible-playbook ec2-cluster.yml --extra-vars \
+# $   ansible-playbook helpers/ec2-cluster.yml --extra-vars \
 #    " EC2_REGION=us-west-2  \
 #      EC2_TYPE=m4.xlarge  \
 #      EC2_AMI=ami-abcd    \
@@ -18,12 +18,13 @@
 #      IAM=awsusername \
 #      EC2_INST_NAME_TAG=my-project \
 #      EC2_COUNT=2 \ 
-#      INVENTORY_FILENAME=myproj_ec2_node_list_`date "+%s"`.txt "
+#      PROJ_WORKSPACE="./workspace" (optional)
 
-# OUTPUT: The private IP addresses of all the nodes, will be stored in INVENTORY_FILENAME 
-# TIP: Create a script in your home dir with your values to do this repeatedly. 
-# TIP: The last 3 vars above project name tag, count of ec2 nodes & the inventory file 
-#      containing the nodes, is what you will keep changing constantly.
+# OUTPUT: The private IP addresses of all the nodes, will be stored in PROJE_WORKSPACE/PRIVATE_IPs_FILENAME 
+
+# TIP: Create a script in your home dir with your values. 
+# TIP: The last 3 vars namely project name tag, count of ec2 nodes & the inventory file 
+#      are the values that you will change constantly.
 
 ---  
 - hosts: localhost  
@@ -37,13 +38,26 @@
     EC2_SUBNET: "{{ EC2_SUBNET|default('null') }}"
     EC2_SEC_GRP_ID: "{{ EC2_SEC_GRP_ID|default('null') }}"
     EC2_INST_NAME_TAG: "{{ EC2_INST_NAME_TAG|default('CHANGE-THIS-DEFAULT-PROJ-NAME') }} "
-    EC2_COUNT: "{{ EC2_COUNT|default('1') }}"     
     EBS_VOL_SIZE: "{{ EBS_VOL_SIZE|default('50') }}"
     IAM: "{{ IAM|default('null') }}" 
-    INVENTORY_FILENAME: "{{ INVENTORY_FILENAME|default('ec2_nodes_list.txt') }}"  
+    EC2_COUNT: "{{ EC2_COUNT|default('1') }}"     
+    PROJ_WORKSPACE: "{{lookup('pipe','pwd')}}/{{PROJ_WORK_SPACE|default('workspace')}}/{{EC2_INST_NAME_TAG}}"
+    PRIVATE_IPs_FILENAME: "{{PROJ_WORKSPACE}}/ec2_private_ip.txt"  
+    INSTANCE_IDS_FILENAME: "{{PROJ_WORKSPACE}}/ec2_inst_ids.txt"  
 
   tasks:  
-    - name: Launching "{{ EC2_COUNT }}" number of ec2 nodes  
+    - stat:
+        path: "{{PROJ_WORKSPACE}}"
+      register: proj_dir
+    - fail:
+        msg: "{{PROJ_WORKSPACE}} directory already exists!"
+      when: proj_dir.stat.isdir is defined
+    - name: Creating "{{PROJ_WORKSPACE}} "
+      file:
+        path: "{{PROJ_WORKSPACE}}"
+        state: directory
+        mode: 0755
+    - name: Launching "{{EC2_COUNT}}" number of ec2 nodes  
       ec2:                              # Using the ec2 Module in Ansible. Ref: http://docs.ansible.com/ansible/latest/ec2_module.html
         region: "{{ EC2_REGION }}"  
         key_name: "{{ EC2_KEY }}"  
@@ -80,32 +94,39 @@
                     state=started
                     port=22
       with_items: "{{ mapr_cluster.instances }} "
-    - name: Delete prev ver of "{{ INVENTORY_FILENAME }}" file if it exists 
+    - name: create empty "{{PRIVATE_IPs_FILENAME}}"  file  
       file: 
-        path: "{{ INVENTORY_FILENAME }}"
-        state: absent
-    - name: create empty "{{ INVENTORY_FILENAME }}"  file  
-      file: 
-        path: "{{ INVENTORY_FILENAME }}"
+        path: "{{PRIVATE_IPs_FILENAME}}"
         state: touch
-    - name: add first line in "{{ INVENTORY_FILENAME }}"  file  
+    - name: add first line in "{{PRIVATE_IPs_FILENAME}}"  file  
       lineinfile: 
-        path: "{{ INVENTORY_FILENAME }}"
+        path: "{{PRIVATE_IPs_FILENAME}}"
         state: present
         line: '[private_ip]'
-    - name: Added the Node Private IP addresses to "{{ INVENTORY_FILENAME }}" file
+    - name: Adding the Private IP addresses to "{{PRIVATE_IPs_FILENAME}}" file
       local_action: lineinfile 
                     state=present
-                    dest="{{ INVENTORY_FILENAME }}" 
+                    dest="{{PRIVATE_IPs_FILENAME}}" 
                     line={{ item.private_ip }}
       with_items: "{{ mapr_cluster.instances }}"
+    - name: create empty "{{INSTANCE_IDS_FILENAME}}"  file  
+      file: 
+        path: "{{INSTANCE_IDS_FILENAME}}"
+        state: touch
+    - name: add first line in "{{INSTANCE_IDS_FILENAME}}"  file  
+      lineinfile: 
+        path: "{{INSTANCE_IDS_FILENAME}}"
+        state: present
+        line: '[instance_ids]'
+    - name: Inventory File "{{INSTANCE_IDS_FILENAME}}" contains the Instance Ids
+      local_action: lineinfile
+                    state=present
+                    dest="{{INSTANCE_IDS_FILENAME}}"
+                    line="{{item}}"
+      with_items: "{{ mapr_cluster.instance_ids }}"
+    - name: add first line in "{{INSTANCE_IDS_FILENAME}}"  file  
+      lineinfile: 
+        path: "{{INSTANCE_IDS_FILENAME}}"
+        state: present
+        line: "\n# Terminate instances: $ aws ec2 terminate-instances --instance-ids $(grep -v 'instance_ids' {{INSTANCE_IDS_FILENAME}}|xargs)"
 
-
-    # - name: adding instance ids comment string 
-    #   shell: echo "\n# Instance ids" >> "{{ INVENTORY_FILENAME }}"
-    # - name: Inventory File " {{ INVENTORY_FILENAME }} " contains the Private IPs and Instance Ids
-    #   local_action: lineinfile
-    #                 state=present
-    #                 dest="{{ INVENTORY_FILENAME }}"
-    #                 line="# \"{{ item }}\" "
-    #   with_items: "{{ mapr_cluster.instance_ids }}"
